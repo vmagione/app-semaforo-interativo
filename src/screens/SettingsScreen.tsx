@@ -1,44 +1,158 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Switch,
   ScrollView, SafeAreaView, Platform, StatusBar as RNStatusBar, Alert,
+  NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
 import { useApp } from '../context/AppContext';
 import PinModal from '../components/PinModal';
 
-function formatDuration(s: number): string {
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+// ── Wheel Column ─────────────────────────────────────────────────────────────
+const ITEM_H = 56;
+const VISIBLE = 5;
+const PICKER_H = ITEM_H * VISIBLE;
+const PAD = ITEM_H * Math.floor(VISIBLE / 2);
+
+function WheelColumn({
+  count, value, onChange,
+}: {
+  count: number;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  const ref = useRef<ScrollView>(null);
+  const [centered, setCentered] = useState(value);
+  const layoutDone = useRef(false);
+
+  const handleLayout = useCallback(() => {
+    if (layoutDone.current) return;
+    layoutDone.current = true;
+    ref.current?.scrollTo({ y: value * ITEM_H, animated: false });
+  }, [value]);
+
+  const handleScrollEnd = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const idx = Math.round(e.nativeEvent.contentOffset.y / ITEM_H);
+      const clamped = Math.max(0, Math.min(count - 1, idx));
+      setCentered(clamped);
+      onChange(clamped);
+    },
+    [count, onChange],
+  );
+
+  return (
+    <View style={colStyles.wrap}>
+      <View pointerEvents="none" style={colStyles.indicator} />
+      <ScrollView
+        ref={ref}
+        onLayout={handleLayout}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={ITEM_H}
+        decelerationRate="fast"
+        nestedScrollEnabled
+        onMomentumScrollEnd={handleScrollEnd}
+        onScrollEndDrag={handleScrollEnd}
+        contentContainerStyle={{ paddingVertical: PAD }}
+        scrollEventThrottle={16}
+      >
+        {Array.from({ length: count }, (_, i) => {
+          const dist = Math.abs(i - centered);
+          return (
+            <View key={i} style={colStyles.item}>
+              <Text style={[
+                colStyles.num,
+                dist === 0 && colStyles.numCenter,
+                dist === 1 && colStyles.numNear,
+              ]}>
+                {String(i).padStart(2, '0')}
+              </Text>
+            </View>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
 }
 
-function DurationRow({
-  label, value, onChange, min, max,
-}: { label: string; value: number; onChange: (v: number) => void; min: number; max: number }) {
-  const step = value >= 60 ? 30 : 5;
+const colStyles = StyleSheet.create({
+  wrap: { width: 84, height: PICKER_H, overflow: 'hidden' },
+  indicator: {
+    position: 'absolute',
+    top: PAD,
+    left: 6,
+    right: 6,
+    height: ITEM_H,
+    borderTopWidth: 1.5,
+    borderBottomWidth: 1.5,
+    borderColor: '#4FC3F7',
+    zIndex: 2,
+  },
+  item: { height: ITEM_H, alignItems: 'center', justifyContent: 'center' },
+  num: { color: '#3A3A3C', fontSize: 20, fontWeight: '400', fontVariant: ['tabular-nums'] },
+  numNear: { color: '#888', fontSize: 26 },
+  numCenter: { color: '#FFF', fontSize: 36, fontWeight: '700' },
+});
+
+// ── Time Picker ──────────────────────────────────────────────────────────────
+function TimePicker({
+  label, value, onChange, accentColor,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  accentColor: string;
+}) {
+  const mins = Math.floor(value / 60);
+  const secs = value % 60;
+
+  // Ref keeps latest value without stale closures in callbacks
+  const valueRef = useRef(value);
+  valueRef.current = value;
+
+  const onMinsChange = useCallback((m: number) => {
+    const s = valueRef.current % 60;
+    onChange(Math.min(3600, m * 60 + s));
+  }, [onChange]);
+
+  const onSecsChange = useCallback((s: number) => {
+    const m = Math.floor(valueRef.current / 60);
+    onChange(Math.min(3600, m * 60 + s));
+  }, [onChange]);
+
   return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <View style={styles.counter}>
-        <TouchableOpacity
-          style={styles.counterBtn}
-          onPress={() => onChange(Math.max(min, value - step))}
-        >
-          <Text style={styles.counterBtnText}>−</Text>
-        </TouchableOpacity>
-        <Text style={styles.counterValue}>{formatDuration(value)}</Text>
-        <TouchableOpacity
-          style={styles.counterBtn}
-          onPress={() => onChange(Math.min(max, value + step))}
-        >
-          <Text style={styles.counterBtnText}>+</Text>
-        </TouchableOpacity>
+    <View style={tpStyles.card}>
+      <Text style={[tpStyles.label, { color: accentColor }]}>{label}</Text>
+      <View style={tpStyles.row}>
+        <View style={tpStyles.col}>
+          <WheelColumn count={61} value={mins} onChange={onMinsChange} />
+          <Text style={tpStyles.unit}>min</Text>
+        </View>
+        <Text style={tpStyles.colon}>:</Text>
+        <View style={tpStyles.col}>
+          <WheelColumn count={60} value={secs} onChange={onSecsChange} />
+          <Text style={tpStyles.unit}>seg</Text>
+        </View>
       </View>
     </View>
   );
 }
 
+const tpStyles = StyleSheet.create({
+  card: {
+    backgroundColor: '#1C1C1E',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  label: { fontSize: 18, fontWeight: '700', marginBottom: 14 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  col: { alignItems: 'center' },
+  colon: { color: '#FFF', fontSize: 40, fontWeight: '700', marginBottom: 22 },
+  unit: { color: '#8E8E93', fontSize: 13, marginTop: 6, fontWeight: '600', letterSpacing: 0.5 },
+});
+
+// ── Settings Screen ──────────────────────────────────────────────────────────
 export default function SettingsScreen() {
   const {
     redDuration, greenDuration, showCountdown, soundEnabled, pin,
@@ -50,23 +164,25 @@ export default function SettingsScreen() {
   const [pinModal, setPinModal] = useState<'none' | 'verify' | 'set'>('none');
 
   const handleSave = () => {
-    setRedDuration(localRed);
-    setGreenDuration(localGreen);
+    const safeRed = Math.min(3600, Math.max(5, localRed));
+    const safeGreen = Math.min(3600, Math.max(5, localGreen));
+    if (localRed < 5 || localGreen < 5) {
+      Alert.alert('Tempo mínimo', 'O tempo mínimo por fase é de 5 segundos. Os valores foram ajustados automaticamente.');
+    }
+    setRedDuration(safeRed);
+    setGreenDuration(safeGreen);
     navigateTo('main');
   };
 
   const handleChangePinPress = () => {
     if (pin) {
-      // Must verify current pin first
       setPinModal('verify');
     } else {
       setPinModal('set');
     }
   };
 
-  const handleVerifySuccess = () => {
-    setPinModal('set');
-  };
+  const handleVerifySuccess = () => setPinModal('set');
 
   const handleSetSuccess = (newPin?: string) => {
     if (newPin) {
@@ -87,22 +203,19 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-
         <Text style={styles.section}>Duração das Fases</Text>
 
-        <DurationRow
+        <TimePicker
           label="🔴  Vermelho"
           value={localRed}
           onChange={setLocalRed}
-          min={5}
-          max={3600}
+          accentColor="#FF453A"
         />
-        <DurationRow
+        <TimePicker
           label="🟢  Verde"
           value={localGreen}
           onChange={setLocalGreen}
-          min={5}
-          max={3600}
+          accentColor="#32D74B"
         />
 
         <View style={styles.divider} />
@@ -149,9 +262,9 @@ export default function SettingsScreen() {
           <Text style={styles.saveBtnText}>Salvar e Voltar</Text>
         </TouchableOpacity>
 
+        <Text style={styles.credit}>By Vinnicius Henrique Magione Soares</Text>
       </ScrollView>
 
-      {/* Verify existing PIN before allowing change */}
       <PinModal
         visible={pinModal === 'verify'}
         mode="verify"
@@ -159,7 +272,6 @@ export default function SettingsScreen() {
         onSuccess={handleVerifySuccess}
         onCancel={() => setPinModal('none')}
       />
-      {/* Set new PIN */}
       <PinModal
         visible={pinModal === 'set'}
         mode="set"
@@ -214,28 +326,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   rowLabel: { color: '#FFF', fontSize: 16 },
-  counter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  counterBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#2C2C2E',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  counterBtnText: { color: '#FFF', fontSize: 22, fontWeight: '700', lineHeight: 26 },
-  counterValue: {
-    color: '#FFF',
-    fontSize: 18,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-    minWidth: 68,
-    textAlign: 'center',
-  },
   pinBtn: {
     backgroundColor: '#1C1C1E',
     borderRadius: 12,
@@ -259,4 +349,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   saveBtnText: { color: '#000', fontSize: 17, fontWeight: '800' },
+  credit: {
+    color: '#3A3A3C',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 24,
+    marginBottom: 8,
+  },
 });
