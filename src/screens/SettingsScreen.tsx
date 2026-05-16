@@ -6,23 +6,31 @@ import {
 import { useApp } from '../context/AppContext';
 import PinModal from '../components/PinModal';
 
+function formatDuration(s: number): string {
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
 function DurationRow({
   label, value, onChange, min, max,
 }: { label: string; value: number; onChange: (v: number) => void; min: number; max: number }) {
+  const step = value >= 60 ? 30 : 5;
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
       <View style={styles.counter}>
         <TouchableOpacity
           style={styles.counterBtn}
-          onPress={() => onChange(Math.max(min, value - 5))}
+          onPress={() => onChange(Math.max(min, value - step))}
         >
           <Text style={styles.counterBtnText}>−</Text>
         </TouchableOpacity>
-        <Text style={styles.counterValue}>{value}s</Text>
+        <Text style={styles.counterValue}>{formatDuration(value)}</Text>
         <TouchableOpacity
           style={styles.counterBtn}
-          onPress={() => onChange(Math.min(max, value + 5))}
+          onPress={() => onChange(Math.min(max, value + step))}
         >
           <Text style={styles.counterBtnText}>+</Text>
         </TouchableOpacity>
@@ -33,8 +41,8 @@ function DurationRow({
 
 export default function SettingsScreen() {
   const {
-    redDuration, greenDuration, showCountdown, pin,
-    setRedDuration, setGreenDuration, setShowCountdown, setPin, navigateTo,
+    redDuration, greenDuration, showCountdown, soundEnabled, pin,
+    setRedDuration, setGreenDuration, setShowCountdown, setSoundEnabled, setPin, navigateTo,
   } = useApp();
 
   const [localRed, setLocalRed] = useState(redDuration);
@@ -87,14 +95,14 @@ export default function SettingsScreen() {
           value={localRed}
           onChange={setLocalRed}
           min={5}
-          max={300}
+          max={3600}
         />
         <DurationRow
           label="🟢  Verde"
           value={localGreen}
           onChange={setLocalGreen}
           min={5}
-          max={300}
+          max={3600}
         />
 
         <View style={styles.divider} />
@@ -105,6 +113,16 @@ export default function SettingsScreen() {
           <Switch
             value={showCountdown}
             onValueChange={setShowCountdown}
+            trackColor={{ false: '#3A3A3C', true: '#32D74B' }}
+            thumbColor="#FFF"
+          />
+        </View>
+
+        <View style={styles.row}>
+          <Text style={styles.rowLabel}>Sons ativos</Text>
+          <Switch
+            value={soundEnabled}
+            onValueChange={setSoundEnabled}
             trackColor={{ false: '#3A3A3C', true: '#32D74B' }}
             thumbColor="#FFF"
           />
@@ -214,7 +232,8 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 18,
     fontWeight: '700',
-    minWidth: 50,
+    fontVariant: ['tabular-nums'],
+    minWidth: 68,
     textAlign: 'center',
   },
   pinBtn: {

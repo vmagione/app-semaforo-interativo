@@ -14,6 +14,7 @@ interface AppContextType {
   redDuration: number;
   greenDuration: number;
   showCountdown: boolean;
+  soundEnabled: boolean;
   currentScreen: Screen;
   start: () => void;
   stop: () => void;
@@ -23,6 +24,7 @@ interface AppContextType {
   setRedDuration: (v: number) => void;
   setGreenDuration: (v: number) => void;
   setShowCountdown: (v: boolean) => void;
+  setSoundEnabled: (v: boolean) => void;
   setPin: (v: string) => void;
 }
 
@@ -37,6 +39,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [redDuration, setRedDurationState] = useState(30);
   const [greenDuration, setGreenDurationState] = useState(15);
   const [showCountdown, setShowCountdownState] = useState(true);
+  const [soundEnabled, setSoundEnabledState] = useState(true);
   const [currentScreen, setCurrentScreen] = useState<Screen>('main');
 
   // Mutable refs so the interval callback always sees fresh values
@@ -45,6 +48,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     timeLeft: 30,
     redDuration: 30,
     greenDuration: 15,
+    soundEnabled: true,
     interval: null as ReturnType<typeof setInterval> | null,
   });
 
@@ -52,20 +56,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   r.current.phase = phase;
   r.current.redDuration = redDuration;
   r.current.greenDuration = greenDuration;
+  r.current.soundEnabled = soundEnabled;
 
   useEffect(() => {
     (async () => {
       try {
-        const [rd, gd, sc, p] = await Promise.all([
+        const [rd, gd, sc, p, se] = await Promise.all([
           AsyncStorage.getItem('redDuration'),
           AsyncStorage.getItem('greenDuration'),
           AsyncStorage.getItem('showCountdown'),
           AsyncStorage.getItem('pin'),
+          AsyncStorage.getItem('soundEnabled'),
         ]);
         if (rd) { setRedDurationState(+rd); r.current.redDuration = +rd; }
         if (gd) { setGreenDurationState(+gd); r.current.greenDuration = +gd; }
         if (sc !== null) setShowCountdownState(sc === 'true');
         if (p) setPinState(p);
+        if (se !== null) { setSoundEnabledState(se === 'true'); r.current.soundEnabled = se === 'true'; }
         // Initialize with loaded red duration
         const initialDur = rd ? +rd : 30;
         setTimeLeft(initialDur);
@@ -83,7 +90,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       r.current.timeLeft -= 1;
       const t = r.current.timeLeft;
 
-      if (t > 0 && t <= 3) playBeep();
+      if (t > 0 && t <= 3 && r.current.soundEnabled) playBeep();
 
       if (t <= 0) {
         const next: Phase = r.current.phase === 'red' ? 'green' : 'red';
@@ -92,7 +99,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         r.current.timeLeft = nextDur;
         setPhase(next);
         setTimeLeft(nextDur);
-        playChange();
+        if (r.current.soundEnabled) playChange();
       } else {
         setTimeLeft(t);
       }
@@ -115,6 +122,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const unlock = useCallback(() => setIsLocked(false), []);
   const navigateTo = useCallback((s: Screen) => setCurrentScreen(s), []);
 
+  // When red duration changes and timer is stopped, immediately reflect it in the display
+  useEffect(() => {
+    if (!r.current.interval) {
+      setTimeLeft(redDuration);
+      r.current.timeLeft = redDuration;
+    }
+  }, [redDuration]);
+
   const setRedDuration = useCallback((v: number) => {
     setRedDurationState(v);
     r.current.redDuration = v;
@@ -132,6 +147,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem('showCountdown', String(v));
   }, []);
 
+  const setSoundEnabled = useCallback((v: boolean) => {
+    setSoundEnabledState(v);
+    r.current.soundEnabled = v;
+    AsyncStorage.setItem('soundEnabled', String(v));
+  }, []);
+
   const setPin = useCallback((v: string) => {
     setPinState(v);
     AsyncStorage.setItem('pin', v);
@@ -140,9 +161,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider value={{
       phase, timeLeft, isRunning, isLocked, pin,
-      redDuration, greenDuration, showCountdown, currentScreen,
+      redDuration, greenDuration, showCountdown, soundEnabled, currentScreen,
       start, stop, lock, unlock, navigateTo,
-      setRedDuration, setGreenDuration, setShowCountdown, setPin,
+      setRedDuration, setGreenDuration, setShowCountdown, setSoundEnabled, setPin,
     }}>
       {children}
     </AppContext.Provider>
